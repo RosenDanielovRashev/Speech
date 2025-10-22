@@ -1,12 +1,13 @@
 import streamlit as st
-import time
-from collections import Counter
 import re
+from collections import Counter
+import nltk
+from textblob import TextBlob
 
 # Конфигуриране на страницата
 st.set_page_config(
-    page_title="Реален Текст Анализатор",
-    page_icon="⚡",
+    page_title="Анализатор на Изречения",
+    page_icon="🔤",
     layout="wide"
 )
 
@@ -26,6 +27,22 @@ st.markdown("""
         margin: 0.5rem 0;
         border-left: 4px solid #1f77b4;
     }
+    .sentence-box {
+        background-color: white;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-radius: 8px;
+        border-left: 4px solid #ff6b6b;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .sentence-number {
+        background-color: #1f77b4;
+        color: white;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        font-weight: bold;
+        font-size: 0.9rem;
+    }
     .real-time-badge {
         background-color: #ff4b4b;
         color: white;
@@ -39,75 +56,128 @@ st.markdown("""
         50% { opacity: 0.7; }
         100% { opacity: 1; }
     }
-    .word-cloud {
-        background-color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        border: 2px solid #e6e6e6;
+    .word-count-badge {
+        background-color: #28a745;
+        color: white;
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-def analyze_text_in_real_time(text):
-    """Анализира текста в реално време"""
+def split_into_sentences(text):
+    """Разделя текста на изречения с подобрен алгоритъм"""
     if not text.strip():
-        return None
+        return []
     
-    # Основна статистика
-    words = re.findall(r'\b\w+\b', text.lower())
-    characters = len(text)
-    characters_no_spaces = len(text.replace(" ", ""))
-    sentences = len(re.findall(r'[.!?]+', text))
-    paragraphs = len([p for p in text.split('\n') if p.strip()])
+    # Патърн за разделяне на изречения (подобрен)
+    sentence_endings = r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!|\…)\s'
     
-    # Допълнителна статистика
-    unique_words = len(set(words))
-    avg_word_length = sum(len(word) for word in words) / len(words) if words else 0
-    avg_sentence_length = len(words) / max(sentences, 1)
+    # Разделяне на изречения
+    sentences = re.split(sentence_endings, text)
     
-    # Най-често срещани думи
-    word_freq = Counter(words)
-    common_words = word_freq.most_common(15)
+    # Филтриране на празни изречения и премахване на водещи/завършващи интервали
+    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
     
-    # Процент на запълване (примерно изчисление)
-    reading_time = len(words) / 200  # 200 думи в минута
+    return sentences
+
+def analyze_sentence(sentence, sentence_num):
+    """Анализира отделно изречение"""
+    words = re.findall(r'\b\w+\b', sentence.lower())
+    characters = len(sentence)
+    characters_no_spaces = len(sentence.replace(" ", ""))
     
     return {
+        'number': sentence_num,
+        'text': sentence,
         'words': len(words),
         'characters': characters,
         'characters_no_spaces': characters_no_spaces,
-        'sentences': sentences,
-        'paragraphs': paragraphs,
-        'unique_words': unique_words,
-        'avg_word_length': avg_word_length,
-        'avg_sentence_length': avg_sentence_length,
-        'common_words': common_words,
-        'reading_time': reading_time,
         'word_list': words
     }
 
-def display_real_time_stats(stats):
-    """Показва статистиките в реално време"""
-    if not stats:
+def analyze_text_in_real_time(text):
+    """Анализира текста в реално време с фокус върху изреченията"""
+    if not text.strip():
+        return None
+    
+    # Разделяне на изречения
+    sentences = split_into_sentences(text)
+    
+    # Анализ на всяко изречение
+    analyzed_sentences = [analyze_sentence(sent, i+1) for i, sent in enumerate(sentences)]
+    
+    # Обща статистика
+    all_words = []
+    for sent in analyzed_sentences:
+        all_words.extend(sent['word_list'])
+    
+    total_words = len(all_words)
+    total_characters = len(text)
+    total_characters_no_spaces = len(text.replace(" ", ""))
+    
+    # Статистика за изреченията
+    sentence_stats = {
+        'count': len(sentences),
+        'avg_words_per_sentence': total_words / len(sentences) if sentences else 0,
+        'avg_chars_per_sentence': total_characters / len(sentences) if sentences else 0,
+        'shortest_sentence': min(sentences, key=len) if sentences else "",
+        'longest_sentence': max(sentences, key=len) if sentences else ""
+    }
+    
+    # Допълнителна статистика
+    unique_words = len(set(all_words))
+    avg_word_length = sum(len(word) for word in all_words) / total_words if total_words > 0 else 0
+    reading_time = total_words / 200  # 200 думи в минута
+    
+    # Най-често срещани думи
+    word_freq = Counter(all_words)
+    common_words = word_freq.most_common(15)
+    
+    return {
+        'sentences': analyzed_sentences,
+        'sentence_stats': sentence_stats,
+        'total_words': total_words,
+        'total_characters': total_characters,
+        'total_characters_no_spaces': total_characters_no_spaces,
+        'unique_words': unique_words,
+        'avg_word_length': avg_word_length,
+        'reading_time': reading_time,
+        'common_words': common_words,
+        'all_words': all_words
+    }
+
+def display_sentence_analysis(sentences):
+    """Показва детайлен анализ на всяко изречение"""
+    if not sentences:
         return
     
-    # Основни метрики
-    col1, col2, col3, col4 = st.columns(4)
+    st.subheader(f"📑 Анализ на изреченията ({len(sentences)} общо)")
     
-    with col1:
-        st.metric("📝 Думи", stats['words'])
-    with col2:
-        st.metric("🔤 Символи", stats['characters'])
-    with col3:
-        st.metric("📊 Уникални думи", stats['unique_words'])
-    with col4:
-        st.metric("⏱️ Време за четене", f"{stats['reading_time']:.1f} мин")
+    for sentence_data in sentences:
+        with st.container():
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                st.markdown(f'<div class="sentence-box">', unsafe_allow_html=True)
+                st.markdown(f'**Изречение {sentence_data["number"]}:**')
+                st.write(sentence_data['text'])
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown('<div style="margin-top: 2rem;">', unsafe_allow_html=True)
+                st.markdown(f'<span class="word-count-badge">{sentence_data["words"]} думи</span>', unsafe_allow_html=True)
+                st.write(f"🔤 {sentence_data['characters']} символа")
+                st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.write("")  # Добавяме малко разстояние
 
 def main():
-    # Заглавие с индикатор за реално време
+    # Заглавие
     st.markdown("""
     <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
-        <h1 class="main-header">⚡ Реален Текст Анализатор</h1>
+        <h1 class="main-header">🔤 Анализатор на Изречения</h1>
         <span class="real-time-badge">РЕАЛНО ВРЕМЕ</span>
     </div>
     """, unsafe_allow_html=True)
@@ -118,134 +188,109 @@ def main():
     with st.sidebar:
         st.header("⚙️ Настройки за анализ")
         
-        analysis_depth = st.selectbox(
-            "Детайлност на анализа:",
-            ["Основна", "Разширена", "Пълна"]
-        )
-        
-        auto_refresh = st.checkbox("Автоматично обновяване", value=True)
-        show_live_preview = st.checkbox("Показвай текста в реално време", value=True)
-        show_word_cloud = st.checkbox("Показвай честота на думи", value=True)
-        
-        if auto_refresh:
-            st.info("Анализът се обновява автоматично при всяка промяна на текста")
+        show_detailed_sentences = st.checkbox("Покажи детайлен анализ на изреченията", value=True)
+        show_sentence_stats = st.checkbox("Покажи статистики за изреченията", value=True)
+        show_word_frequency = st.checkbox("Покажи честота на думи", value=True)
         
         st.markdown("---")
         st.header("ℹ️ Информация")
         st.write("""
-        Това приложение анализира текста ви в **реално време**.
-        
-        **Характеристики:**
-        - Моментален анализ
-        - Без записване на файлове
-        - Неограничена дължина на текста
-        - Детайлна статистика
+        **Нови характеристики:**
+        - 📑 Разделяне на текст на изречения
+        - 🔍 Анализ на всяко изречение поотделно
+        - 📊 Статистики за дължина на изречения
+        - ⚡ Моментален анализ в реално време
         """)
     
     # Основна област
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Текстова област с автоматично обновяване
+        # Текстова област
         st.subheader("🎯 Въведи текст за анализ")
+        
+        # Примерен текст за демонстрация
+        sample_text = """Това е първото изречение. То съдържа няколко думи!
+        Второто изречение е малко по-дълго и показва как работи разделянето.
+        Трето ли е това? Четвъртото изречение завършва с удивителен знак!"""
         
         text = st.text_area(
             "Пишете тук:",
-            height=400,
-            placeholder="Започнете да пишете... Анализът ще се покаже веднага в дясната колона! ✨",
+            height=300,
+            placeholder="Започнете да пишете... Текстът ще бъде автоматично разделен на изречения за анализ.",
             key="real_time_input",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            value=sample_text
         )
         
         # Индикатор за активност
         if text:
-            words_count = len(re.findall(r'\b\w+\b', text.lower()))
-            st.success(f"✅ Анализирани {words_count} думи в реално време!")
+            sentences = split_into_sentences(text)
+            st.success(f"✅ Разпознати {len(sentences)} изречения в реално време!")
     
     with col2:
-        st.subheader("📊 Жива статистика")
+        st.subheader("📊 Обща статистика")
         
         # Анализ в реално време
         if text.strip():
-            stats = analyze_text_in_real_time(text)
+            analysis = analyze_text_in_real_time(text)
             
-            if stats:
-                # Показване на основни статистики
-                display_real_time_stats(stats)
+            if analysis:
+                # Основни метрики
+                col1, col2 = st.columns(2)
                 
-                st.markdown("---")
+                with col1:
+                    st.metric("📝 Общо думи", analysis['total_words'])
+                    st.metric("📑 Изречения", analysis['sentence_stats']['count'])
+                    st.metric("🔤 Уникални думи", analysis['unique_words'])
                 
-                # Детайлна статистика
-                with st.expander("📈 Детайлен анализ", expanded=True):
-                    st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write(f"**Символи без интервали:** {stats['characters_no_spaces']}")
-                        st.write(f"**Изречения:** {stats['sentences']}")
-                        st.write(f"**Параграфи:** {stats['paragraphs']}")
-                    
-                    with col2:
-                        st.write(f"**Средна дължина на дума:** {stats['avg_word_length']:.1f}")
-                        st.write(f"**Средна дължина на изречение:** {stats['avg_sentence_length']:.1f} думи")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
+                with col2:
+                    st.metric("📊 Символи", analysis['total_characters'])
+                    st.metric("⏱️ Време за четене", f"{analysis['reading_time']:.1f} мин")
+                    st.metric("📏 Ср. дължина на дума", f"{analysis['avg_word_length']:.1f}")
                 
-                # Честота на думи
-                if show_word_cloud and stats['common_words']:
-                    with st.expander("🔤 Често срещани думи", expanded=True):
-                        st.markdown('<div class="word-cloud">', unsafe_allow_html=True)
-                        for word, count in stats['common_words'][:10]:
-                            # Създаваме визуален индикатор за честота
-                            percentage = (count / stats['words']) * 100
-                            st.write(
-                                f"`{word}`: {count} пъти ({percentage:.1f}%)"
-                            )
+                # Статистики за изреченията
+                if show_sentence_stats and analysis['sentence_stats']['count'] > 0:
+                    with st.expander("📈 Статистики за изреченията", expanded=True):
+                        st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                        
+                        stats = analysis['sentence_stats']
+                        st.write(f"**Средно думи на изречение:** {stats['avg_words_per_sentence']:.1f}")
+                        st.write(f"**Средно символи на изречение:** {stats['avg_chars_per_sentence']:.1f}")
+                        
+                        if stats['count'] > 1:
+                            st.write("---")
+                            st.write("**Най-кратко изречение:**")
+                            st.info(stats['shortest_sentence'])
+                            
+                            st.write("**Най-дълго изречение:**")
+                            st.info(stats['longest_sentence'])
+                        
                         st.markdown('</div>', unsafe_allow_html=True)
                 
-                # Информация за плътност
-                with st.expander("📊 Плътност на текста"):
-                    if stats['words'] > 0:
-                        diversity_ratio = stats['unique_words'] / stats['words']
-                        st.write(f"**Разнообразие на думи:** {diversity_ratio:.2%}")
-                        
-                        if diversity_ratio > 0.7:
-                            st.info("🎯 Текстът има високо лексикално разнообразие")
-                        elif diversity_ratio > 0.4:
-                            st.info("📝 Текстът има средно лексикално разнообразие")
-                        else:
-                            st.info("🔁 Текстът има ниско лексикално разнообразие")
+                # Честота на думи
+                if show_word_frequency and analysis['common_words']:
+                    with st.expander("🔤 Често срещани думи"):
+                        for word, count in analysis['common_words'][:10]:
+                            percentage = (count / analysis['total_words']) * 100
+                            st.write(f"`{word}`: {count} пъти ({percentage:.1f}%)")
         
         else:
-            # Съобщение, когато няма текст
             st.info("💡 Започнете да пишете в лявата колона...")
-            st.markdown("""
-            **Ще видите тук:**
-            - Брой думи и символи
-            - Статистики за четене
+            st.write("""
+            **Ще видите:**
+            - Брой изречения
+            - Анализ на всяко изречение
+            - Статистики за дължина
             - Често срещани думи
-            - И много други...
             """)
     
-    # Допълнителна секция за преглед на текста
-    if text and show_live_preview:
+    # Детайлен анализ на изреченията
+    if text.strip() and show_detailed_sentences:
         st.markdown("---")
-        st.subheader("👁️ Преглед на текста")
-        
-        # Показване на текста с номера на редове
-        lines = text.split('\n')
-        preview_text = ""
-        for i, line in enumerate(lines, 1):
-            preview_text += f"{i:3d}. {line}\n"
-        
-        st.text_area(
-            "Текущ текст:",
-            preview_text,
-            height=200,
-            key="preview_area",
-            label_visibility="collapsed"
-        )
+        analysis = analyze_text_in_real_time(text)
+        if analysis and analysis['sentences']:
+            display_sentence_analysis(analysis['sentences'])
 
 if __name__ == "__main__":
     main()
