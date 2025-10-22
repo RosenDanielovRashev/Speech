@@ -1,2 +1,2 @@
-  pyttsx3
-  streamlit
+streamlit
+gtts
