@@ -1,17 +1,16 @@
 import streamlit as st
-import tempfile
-import os
-from gtts import gTTS
-import base64
+import time
+from collections import Counter
+import re
 
 # Конфигуриране на страницата
 st.set_page_config(
-    page_title="Text to Speech App",
-    page_icon="🔊",
+    page_title="Реален Текст Анализатор",
+    page_icon="⚡",
     layout="wide"
 )
 
-# CSS за подобрен интерфейс
+# CSS за по-добър визуален вид
 st.markdown("""
 <style>
     .main-header {
@@ -20,164 +19,233 @@ st.markdown("""
         text-align: center;
         margin-bottom: 2rem;
     }
-    .text-area {
+    .stats-box {
+        background-color: #f0f2f6;
+        padding: 1rem;
         border-radius: 10px;
-        padding: 15px;
-        border: 2px solid #ddd;
+        margin: 0.5rem 0;
+        border-left: 4px solid #1f77b4;
     }
-    .success-message {
-        padding: 10px;
-        background-color: #d4edda;
-        border-radius: 5px;
-        border: 1px solid #c3e6cb;
-        color: #155724;
+    .real-time-badge {
+        background-color: #ff4b4b;
+        color: white;
+        padding: 0.2rem 0.8rem;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    .word-cloud {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 2px solid #e6e6e6;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Заглавие
-st.markdown('<h1 class="main-header">🔊 Text to Speech с gTTS</h1>', unsafe_allow_html=True)
-
-# Описание
-st.markdown("""
-### Въведи текст и го преобразувай в аудио!
-Това приложение използва Google Text-to-Speech (gTTS) за преобразуване на текст в говор.
-Няма ограничения за дължина на текста! 📝
-""")
-
-# Функция за създаване на аудио файл
-def text_to_speech(text, language='bg', slow=False):
-    """
-    Преобразува текст в аудио файл с gTTS
-    """
-    try:
-        tts = gTTS(text=text, lang=language, slow=slow)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-            tts.save(tmp_file.name)
-            return tmp_file.name
-    except Exception as e:
-        st.error(f"Грешка при преобразуването: {str(e)}")
+def analyze_text_in_real_time(text):
+    """Анализира текста в реално време"""
+    if not text.strip():
         return None
+    
+    # Основна статистика
+    words = re.findall(r'\b\w+\b', text.lower())
+    characters = len(text)
+    characters_no_spaces = len(text.replace(" ", ""))
+    sentences = len(re.findall(r'[.!?]+', text))
+    paragraphs = len([p for p in text.split('\n') if p.strip()])
+    
+    # Допълнителна статистика
+    unique_words = len(set(words))
+    avg_word_length = sum(len(word) for word in words) / len(words) if words else 0
+    avg_sentence_length = len(words) / max(sentences, 1)
+    
+    # Най-често срещани думи
+    word_freq = Counter(words)
+    common_words = word_freq.most_common(15)
+    
+    # Процент на запълване (примерно изчисление)
+    reading_time = len(words) / 200  # 200 думи в минута
+    
+    return {
+        'words': len(words),
+        'characters': characters,
+        'characters_no_spaces': characters_no_spaces,
+        'sentences': sentences,
+        'paragraphs': paragraphs,
+        'unique_words': unique_words,
+        'avg_word_length': avg_word_length,
+        'avg_sentence_length': avg_sentence_length,
+        'common_words': common_words,
+        'reading_time': reading_time,
+        'word_list': words
+    }
 
-# Функция за показване на аудио плеър
-def display_audio_player(audio_file):
-    """
-    Показва аудио плеър в Streamlit
-    """
-    try:
-        with open(audio_file, 'rb') as f:
-            audio_bytes = f.read()
+def display_real_time_stats(stats):
+    """Показва статистиките в реално време"""
+    if not stats:
+        return
+    
+    # Основни метрики
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📝 Думи", stats['words'])
+    with col2:
+        st.metric("🔤 Символи", stats['characters'])
+    with col3:
+        st.metric("📊 Уникални думи", stats['unique_words'])
+    with col4:
+        st.metric("⏱️ Време за четене", f"{stats['reading_time']:.1f} мин")
+
+def main():
+    # Заглавие с индикатор за реално време
+    st.markdown("""
+    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
+        <h1 class="main-header">⚡ Реален Текст Анализатор</h1>
+        <span class="real-time-badge">РЕАЛНО ВРЕМЕ</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Сайдбар за настройки
+    with st.sidebar:
+        st.header("⚙️ Настройки за анализ")
         
-        # Кодиране в base64 за по-добро представяне
-        audio_base64 = base64.b64encode(audio_bytes).decode()
-        audio_html = f'''
-            <audio controls autoplay style="width: 100%">
-                <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
-                Вашият браузър не поддържа аудио елемент.
-            </audio>
-        '''
-        st.markdown(audio_html, unsafe_allow_html=True)
-        
-        # Бутон за изтегляне
-        st.download_button(
-            label="📥 Изтегли аудио файл",
-            data=audio_bytes,
-            file_name="generated_speech.mp3",
-            mime="audio/mp3"
+        analysis_depth = st.selectbox(
+            "Детайлност на анализа:",
+            ["Основна", "Разширена", "Пълна"]
         )
         
-        return True
-    except Exception as e:
-        st.error(f"Грешка при показването на аудио: {str(e)}")
-        return False
-
-# Основен интерфейс
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    # Текстова област за въвеждане
-    user_text = st.text_area(
-        "Въведи текст тук:",
-        height=300,
-        placeholder="Въведете текста, който искате да преобразувате в говор...",
-        help="Можете да въвеждате неограничено количество текст"
-    )
-
-with col2:
-    # Настройки
-    st.subheader("⚙️ Настройки")
+        auto_refresh = st.checkbox("Автоматично обновяване", value=True)
+        show_live_preview = st.checkbox("Показвай текста в реално време", value=True)
+        show_word_cloud = st.checkbox("Показвай честота на думи", value=True)
+        
+        if auto_refresh:
+            st.info("Анализът се обновява автоматично при всяка промяна на текста")
+        
+        st.markdown("---")
+        st.header("ℹ️ Информация")
+        st.write("""
+        Това приложение анализира текста ви в **реално време**.
+        
+        **Характеристики:**
+        - Моментален анализ
+        - Без записване на файлове
+        - Неограничена дължина на текста
+        - Детайлна статистика
+        """)
     
-    language_options = {
-        'Български': 'bg',
-        'Английски': 'en',
-        'Немски': 'de',
-        'Френски': 'fr',
-        'Испански': 'es',
-        'Италиански': 'it',
-        'Руски': 'ru'
-    }
+    # Основна област
+    col1, col2 = st.columns([2, 1])
     
-    selected_language = st.selectbox(
-        "Избери език:",
-        options=list(language_options.keys()),
-        index=0
-    )
+    with col1:
+        # Текстова област с автоматично обновяване
+        st.subheader("🎯 Въведи текст за анализ")
+        
+        text = st.text_area(
+            "Пишете тук:",
+            height=400,
+            placeholder="Започнете да пишете... Анализът ще се покаже веднага в дясната колона! ✨",
+            key="real_time_input",
+            label_visibility="collapsed"
+        )
+        
+        # Индикатор за активност
+        if text:
+            words_count = len(re.findall(r'\b\w+\b', text.lower()))
+            st.success(f"✅ Анализирани {words_count} думи в реално време!")
     
-    speed_option = st.radio(
-        "Скорост на говора:",
-        ["Нормална", "Бавна"],
-        help="Бавната скорост е по-ясна за дълги текстове"
-    )
-
-# Бутон за преобразуване
-if st.button("🎵 Преобразувай в аудио", type="primary", use_container_width=True):
-    if user_text.strip():
-        with st.spinner("Преобразуване на текста в аудио... Моля, изчакайте."):
-            # Преобразуване на текст в аудио
-            audio_file = text_to_speech(
-                text=user_text,
-                language=language_options[selected_language],
-                slow=(speed_option == "Бавна")
-            )
+    with col2:
+        st.subheader("📊 Жива статистика")
+        
+        # Анализ в реално време
+        if text.strip():
+            stats = analyze_text_in_real_time(text)
             
-            if audio_file:
-                st.markdown('<div class="success-message">✅ Аудио файлът е успешно генериран!</div>', unsafe_allow_html=True)
+            if stats:
+                # Показване на основни статистики
+                display_real_time_stats(stats)
                 
-                # Показване на аудио плеър
-                display_audio_player(audio_file)
+                st.markdown("---")
                 
-                # Почистване на временния файл
-                try:
-                    os.unlink(audio_file)
-                except:
-                    pass
+                # Детайлна статистика
+                with st.expander("📈 Детайлен анализ", expanded=True):
+                    st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write(f"**Символи без интервали:** {stats['characters_no_spaces']}")
+                        st.write(f"**Изречения:** {stats['sentences']}")
+                        st.write(f"**Параграфи:** {stats['paragraphs']}")
+                    
+                    with col2:
+                        st.write(f"**Средна дължина на дума:** {stats['avg_word_length']:.1f}")
+                        st.write(f"**Средна дължина на изречение:** {stats['avg_sentence_length']:.1f} думи")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
-                # Статистика
-                st.info(f"📊 Статистика: {len(user_text)} символа, {len(user_text.split())} думи")
-    else:
-        st.warning("⚠️ Моля, въведете текст за преобразуване.")
+                # Честота на думи
+                if show_word_cloud and stats['common_words']:
+                    with st.expander("🔤 Често срещани думи", expanded=True):
+                        st.markdown('<div class="word-cloud">', unsafe_allow_html=True)
+                        for word, count in stats['common_words'][:10]:
+                            # Създаваме визуален индикатор за честота
+                            percentage = (count / stats['words']) * 100
+                            st.write(
+                                f"`{word}`: {count} пъти ({percentage:.1f}%)"
+                            )
+                        st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Информация за плътност
+                with st.expander("📊 Плътност на текста"):
+                    if stats['words'] > 0:
+                        diversity_ratio = stats['unique_words'] / stats['words']
+                        st.write(f"**Разнообразие на думи:** {diversity_ratio:.2%}")
+                        
+                        if diversity_ratio > 0.7:
+                            st.info("🎯 Текстът има високо лексикално разнообразие")
+                        elif diversity_ratio > 0.4:
+                            st.info("📝 Текстът има средно лексикално разнообразие")
+                        else:
+                            st.info("🔁 Текстът има ниско лексикално разнообразие")
+        
+        else:
+            # Съобщение, когато няма текст
+            st.info("💡 Започнете да пишете в лявата колона...")
+            st.markdown("""
+            **Ще видите тук:**
+            - Брой думи и символи
+            - Статистики за четене
+            - Често срещани думи
+            - И много други...
+            """)
+    
+    # Допълнителна секция за преглед на текста
+    if text and show_live_preview:
+        st.markdown("---")
+        st.subheader("👁️ Преглед на текста")
+        
+        # Показване на текста с номера на редове
+        lines = text.split('\n')
+        preview_text = ""
+        for i, line in enumerate(lines, 1):
+            preview_text += f"{i:3d}. {line}\n"
+        
+        st.text_area(
+            "Текущ текст:",
+            preview_text,
+            height=200,
+            key="preview_area",
+            label_visibility="collapsed"
+        )
 
-# Допълнителна информация
-with st.expander("ℹ️ Информация за приложението"):
-    st.markdown("""
-    ### Как работи това приложение?
-    
-    1. **Въвеждате текст** в текстовото поле (няма ограничения за дължина)
-    2. **Избирате език** и скорост на говора
-    3. **Натискате бутона** за преобразуване
-    4. **Слушате резултата** директно в браузъра или го изтегляте
-    
-    ### Технически детайли:
-    - Използва **gTTS (Google Text-to-Speech)** библиотеката
-    - Поддържа **множество езици**
-    - Генерира **MP3 файлове**
-    - **Няма ограничения** за дължина на текста
-    - Аудио файловете се генерират в реално време
-    
-    ### Поддържани езици:
-    - Български, Английски, Немски, Френски, Испански, Италиански, Руски и много други
-    """)
-
-# Футър
-st.markdown("---")
-st.markdown("Създадено с ❤️ чрез Streamlit и gTTS")
+if __name__ == "__main__":
+    main()
