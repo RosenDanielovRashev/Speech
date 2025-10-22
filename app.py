@@ -1,8 +1,6 @@
 import streamlit as st
 import re
 from collections import Counter
-import nltk
-from textblob import TextBlob
 
 # Конфигуриране на страницата
 st.set_page_config(
@@ -63,6 +61,15 @@ st.markdown("""
         border-radius: 12px;
         font-size: 0.8rem;
     }
+    .sentence-length-indicator {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        margin-left: 0.5rem;
+    }
+    .short-sentence { background-color: #d4edda; color: #155724; }
+    .medium-sentence { background-color: #fff3cd; color: #856404; }
+    .long-sentence { background-color: #f8d7da; color: #721c24; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,8 +78,9 @@ def split_into_sentences(text):
     if not text.strip():
         return []
     
-    # Патърн за разделяне на изречения (подобрен)
-    sentence_endings = r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!|\…)\s'
+    # Подобрен патърн за разделяне на изречения
+    # Разделя по . ! ? … и след това интервал или нов ред
+    sentence_endings = r'(?<=[.!?\…])\s+'
     
     # Разделяне на изречения
     sentences = re.split(sentence_endings, text)
@@ -80,13 +88,43 @@ def split_into_sentences(text):
     # Филтриране на празни изречения и премахване на водещи/завършващи интервали
     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
     
-    return sentences
+    # Обединяване на съкращения, които не са краища на изречения
+    cleaned_sentences = []
+    i = 0
+    while i < len(sentences):
+        current_sentence = sentences[i]
+        
+        # Проверка дали изречението завършва със съкращение (но не е края на изречение)
+        if (i < len(sentences) - 1 and 
+            re.search(r'\b(г|с|т|др|проф|доц|инж|бл|ал|ул|бул|пл)\.$', current_sentence, re.IGNORECASE)):
+            current_sentence += " " + sentences[i + 1]
+            i += 2
+        else:
+            i += 1
+        
+        cleaned_sentences.append(current_sentence)
+    
+    return cleaned_sentences
+
+def get_sentence_length_category(word_count):
+    """Определя категорията на дължина на изречението"""
+    if word_count <= 8:
+        return "short", "Късо"
+    elif word_count <= 15:
+        return "medium", "Средно"
+    else:
+        return "long", "Дълго"
 
 def analyze_sentence(sentence, sentence_num):
     """Анализира отделно изречение"""
-    words = re.findall(r'\b\w+\b', sentence.lower())
+    # Намиране на думите (само букви и цифри)
+    words = re.findall(r'\b[а-яА-Яa-zA-Z0-9]+\b', sentence)
+    
     characters = len(sentence)
     characters_no_spaces = len(sentence.replace(" ", ""))
+    
+    # Определяне на категорията на дължина
+    length_category, length_label = get_sentence_length_category(len(words))
     
     return {
         'number': sentence_num,
@@ -94,7 +132,9 @@ def analyze_sentence(sentence, sentence_num):
         'words': len(words),
         'characters': characters,
         'characters_no_spaces': characters_no_spaces,
-        'word_list': words
+        'word_list': words,
+        'length_category': length_category,
+        'length_label': length_label
     }
 
 def analyze_text_in_real_time(text):
@@ -118,13 +158,35 @@ def analyze_text_in_real_time(text):
     total_characters_no_spaces = len(text.replace(" ", ""))
     
     # Статистика за изреченията
-    sentence_stats = {
-        'count': len(sentences),
-        'avg_words_per_sentence': total_words / len(sentences) if sentences else 0,
-        'avg_chars_per_sentence': total_characters / len(sentences) if sentences else 0,
-        'shortest_sentence': min(sentences, key=len) if sentences else "",
-        'longest_sentence': max(sentences, key=len) if sentences else ""
-    }
+    if analyzed_sentences:
+        words_per_sentence = [sent['words'] for sent in analyzed_sentences]
+        chars_per_sentence = [sent['characters'] for sent in analyzed_sentences]
+        
+        sentence_stats = {
+            'count': len(sentences),
+            'avg_words_per_sentence': sum(words_per_sentence) / len(words_per_sentence),
+            'avg_chars_per_sentence': sum(chars_per_sentence) / len(chars_per_sentence),
+            'min_words': min(words_per_sentence),
+            'max_words': max(words_per_sentence),
+            'min_chars': min(chars_per_sentence),
+            'max_chars': max(chars_per_sentence),
+            'short_sentences': len([s for s in analyzed_sentences if s['length_category'] == 'short']),
+            'medium_sentences': len([s for s in analyzed_sentences if s['length_category'] == 'medium']),
+            'long_sentences': len([s for s in analyzed_sentences if s['length_category'] == 'long'])
+        }
+    else:
+        sentence_stats = {
+            'count': 0,
+            'avg_words_per_sentence': 0,
+            'avg_chars_per_sentence': 0,
+            'min_words': 0,
+            'max_words': 0,
+            'min_chars': 0,
+            'max_chars': 0,
+            'short_sentences': 0,
+            'medium_sentences': 0,
+            'long_sentences': 0
+        }
     
     # Допълнителна статистика
     unique_words = len(set(all_words))
@@ -153,7 +215,7 @@ def display_sentence_analysis(sentences):
     if not sentences:
         return
     
-    st.subheader(f"📑 Анализ на изреченията ({len(sentences)} общо)")
+    st.subheader(f"📑 Детайлен анализ на изреченията ({len(sentences)} общо)")
     
     for sentence_data in sentences:
         with st.container():
@@ -161,7 +223,20 @@ def display_sentence_analysis(sentences):
             
             with col1:
                 st.markdown(f'<div class="sentence-box">', unsafe_allow_html=True)
-                st.markdown(f'**Изречение {sentence_data["number"]}:**')
+                
+                # Заглавие с номер и категория на дължина
+                col_title1, col_title2 = st.columns([3, 1])
+                with col_title1:
+                    st.markdown(f'**Изречение {sentence_data["number"]}:**')
+                with col_title2:
+                    st.markdown(
+                        f'<span class="sentence-length-indicator {sentence_data["length_category"]}-sentence">'
+                        f'{sentence_data["length_label"]} ({sentence_data["words"]} думи)'
+                        f'</span>', 
+                        unsafe_allow_html=True
+                    )
+                
+                # Текст на изречението
                 st.write(sentence_data['text'])
                 st.markdown('</div>', unsafe_allow_html=True)
             
@@ -169,6 +244,7 @@ def display_sentence_analysis(sentences):
                 st.markdown('<div style="margin-top: 2rem;">', unsafe_allow_html=True)
                 st.markdown(f'<span class="word-count-badge">{sentence_data["words"]} думи</span>', unsafe_allow_html=True)
                 st.write(f"🔤 {sentence_data['characters']} символа")
+                st.write(f"📏 {sentence_data['characters_no_spaces']} без интервали")
                 st.markdown('</div>', unsafe_allow_html=True)
         
         st.write("")  # Добавяме малко разстояние
@@ -191,15 +267,25 @@ def main():
         show_detailed_sentences = st.checkbox("Покажи детайлен анализ на изреченията", value=True)
         show_sentence_stats = st.checkbox("Покажи статистики за изреченията", value=True)
         show_word_frequency = st.checkbox("Покажи честота на думи", value=True)
+        show_length_distribution = st.checkbox("Покажи разпределение на дължините", value=True)
+        
+        st.markdown("---")
+        st.header("📏 Категории на дължина")
+        st.write("""
+        - **Късо:** до 8 думи
+        - **Средно:** 9-15 думи  
+        - **Дълго:** над 15 думи
+        """)
         
         st.markdown("---")
         st.header("ℹ️ Информация")
         st.write("""
-        **Нови характеристики:**
-        - 📑 Разделяне на текст на изречения
-        - 🔍 Анализ на всяко изречение поотделно
-        - 📊 Статистики за дължина на изречения
-        - ⚡ Моментален анализ в реално време
+        **Характеристики:**
+        - 📑 Автоматично разделяне на изречения
+        - 🔍 Индивидуален анализ
+        - 📊 Статистики за дължина
+        - ⚡ Моментален анализ
+        - 🎯 Без външни зависимости
         """)
     
     # Основна област
@@ -211,9 +297,10 @@ def main():
         
         # Примерен текст за демонстрация
         sample_text = """Това е първото изречение. То съдържа няколко думи!
-        Второто изречение е малко по-дълго и показва как работи разделянето.
-        Трето ли е това? Четвъртото изречение завършва с удивителен знак!"""
-        
+Второто изречение е малко по-дълго и показва как работи разделянето.
+Трето ли е това? Четвъртото изречение завършва с удивителен знак!
+Това е много дълго изречение, което съдържа много думи и ще бъде категоризирано като дълго изречение за анализ."""
+
         text = st.text_area(
             "Пишете тук:",
             height=300,
@@ -257,16 +344,27 @@ def main():
                         stats = analysis['sentence_stats']
                         st.write(f"**Средно думи на изречение:** {stats['avg_words_per_sentence']:.1f}")
                         st.write(f"**Средно символи на изречение:** {stats['avg_chars_per_sentence']:.1f}")
-                        
-                        if stats['count'] > 1:
-                            st.write("---")
-                            st.write("**Най-кратко изречение:**")
-                            st.info(stats['shortest_sentence'])
-                            
-                            st.write("**Най-дълго изречение:**")
-                            st.info(stats['longest_sentence'])
+                        st.write(f"**Най-кратко изречение:** {stats['min_words']} думи")
+                        st.write(f"**Най-дълго изречение:** {stats['max_words']} думи")
                         
                         st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Разпределение на дължините
+                if show_length_distribution and analysis['sentence_stats']['count'] > 0:
+                    with st.expander("📊 Разпределение на дължините"):
+                        stats = analysis['sentence_stats']
+                        total = stats['count']
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Къси", stats['short_sentences'], 
+                                     f"{stats['short_sentences']/total*100:.1f}%")
+                        with col2:
+                            st.metric("Средни", stats['medium_sentences'],
+                                     f"{stats['medium_sentences']/total*100:.1f}%")
+                        with col3:
+                            st.metric("Дълги", stats['long_sentences'],
+                                     f"{stats['long_sentences']/total*100:.1f}%")
                 
                 # Честота на думи
                 if show_word_frequency and analysis['common_words']:
